@@ -89,8 +89,7 @@ main = do
       (fromIntegral chunkSizeBytes)
       (fromIntegral 128)
     play $ Chunk chunkMem
-    putStrLn "played!"
-    delay 3000
+    delay $ ((fromIntegral sample_count * 1000) `div` fromIntegral sps) + 100
   quit
 
 -- save :: IO ()
