@@ -25,10 +25,6 @@ import Control.Concurrent (threadDelay)
 sps :: Int
 sps = 48000
 
--- chunks per second
-cps :: Int
-cps = 60
-
 over :: [Float] -> [Float] -> [Float]
 over = zipWith (+)
 
@@ -38,19 +34,20 @@ after a b = a <> b
 midiToFreq :: Float -> Float
 midiToFreq n = 440.0 * (2 ** (1.0 / 12.0)) ** n
 
---applyEnvelope :: [Float] -> [Float] -> [Float]
---applyEnvelope = zipWith (*)
---
---keyPressEnvelope :: [Float]
---keyPressEnvelope = 0.1
---      let
---        tvals = fromIntegral <$> [0 .. sps]
---        f sample_n = sin (sample_n / fromIntegral sps)
---      in
---        map f tvals
+applyEnvelope :: [Float] -> [Float] -> [Float]
+applyEnvelope = zipWith (*)
+
+linearly :: Int -> Float -> Float -> [Float]
+linearly sampleCount fromVal toVal = (\i -> fromVal + (toVal - fromVal) * (fromIntegral i / fromIntegral sampleCount)) <$> [0..sampleCount]
+
+-- (1/10)s attack
+-- (6/10)s sustain
+-- (9/10)s decay
+keyPressEnvelope :: [Float]
+keyPressEnvelope = linearly (sps `div` 10) 0 1 `after` linearly (6 * (sps `div` 10)) 1 1 `after` linearly (3 * (sps `div` 10)) 1 0
 
 wave :: [Float]
-wave = sinew (midiToFreq 0) `after` (sinew (midiToFreq 1) `over` sinew (midiToFreq 2))
+wave = applyEnvelope keyPressEnvelope (sinew (midiToFreq 0)) `after` applyEnvelope keyPressEnvelope (sinew (midiToFreq 1) `over` sinew (midiToFreq 2))
   where
     sinew :: Float -> [Float]
     sinew freq =
@@ -60,6 +57,10 @@ wave = sinew (midiToFreq 0) `after` (sinew (midiToFreq 1) `over` sinew (midiToFr
       in
         map f tvals
 
+
+-- chunks per second
+cps :: Int
+cps = 60
 
 floatToInt16 :: Float -> Int16
 floatToInt16 x = floor $ x * (fromIntegral (maxBound :: Int16))
@@ -74,21 +75,23 @@ main = do
       , audioOutput = Stereo
       }
   withAudio audio (sps `div` cps) do
-    let chunkSize = 2 * sps * 2 * 2
-    buffer <- mallocBytes chunkSize
+    let
+      num_channels = 2 -- left and right
+      bytes_per_sample = 2 -- 16bit numbers
+      sample_count = length wave
+      chunkSizeBytes = sample_count * bytes_per_sample * num_channels
+    buffer <- mallocBytes chunkSizeBytes
     traverse (\(i, x) -> writeInt16OffPtr (castPtr buffer) (2*i + 1) x) (take (2 * sps) $ zip [0..] $ (floatToInt16 <$> wave))
     chunkMem <- malloc
     poke chunkMem $ RawMixer.Chunk
       (fromIntegral 1)
       buffer
-      (fromIntegral chunkSize)
+      (fromIntegral chunkSizeBytes)
       (fromIntegral 128)
     play $ Chunk chunkMem
     putStrLn "played!"
-    delay 2000
+    delay 3000
   quit
-    
-  
 
 -- save :: IO ()
 -- save = withFile "./output.bin" WriteMode $ flip BS.hPutBuilder $ fold (BS.floatLE <$> wave)
