@@ -9,7 +9,7 @@ import System.IO (withFile, IOMode(WriteMode))
 import Data.Foldable (fold)
 import System.Process (system)
 import SDL.Init (initialize, InitFlag(InitAudio), quit)
-import SDL.Mixer (Chunk(Chunk), withAudio, Audio(..), Format(FormatS16_LSB), Output(Mono), chunkDecoders, play)
+import SDL.Mixer (Chunk(Chunk), withAudio, Audio(..), Format(FormatS16_LSB), Output(Mono, Stereo), chunkDecoders, play)
 import qualified SDL.Raw.Mixer as RawMixer
 import Foreign.C.Types (CInt(..))
 import Foreign.Ptr (castPtr)
@@ -71,12 +71,12 @@ main = do
     audio = Audio
       { audioFrequency = sps
       , audioFormat = FormatS16_LSB
-      , audioOutput = Mono
+      , audioOutput = Stereo
       }
   withAudio audio (sps `div` cps) do
-    let chunkSize = 2 * sps * 2
+    let chunkSize = 2 * sps * 2 * 2
     buffer <- mallocBytes chunkSize
-    traverse (\(i, x) -> writeInt16OffPtr (castPtr buffer) i x) (take (2 * sps) $ zip [0..] $ (floatToInt16 <$> wave))
+    traverse (\(i, x) -> writeInt16OffPtr (castPtr buffer) (2*i + 1) x) (take (2 * sps) $ zip [0..] $ (floatToInt16 <$> wave))
     chunkMem <- malloc
     poke chunkMem $ RawMixer.Chunk
       (fromIntegral 1)
