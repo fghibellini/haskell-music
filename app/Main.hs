@@ -1,4 +1,5 @@
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 module Main where
 
@@ -26,58 +27,54 @@ sps :: Int
 sps = 48000
 
 
-newtype Stream a = Stream { unStream :: [a] }
+newtype Stream a = Stream { unStream :: [a] } deriving Functor
 
 -- common audio stream types
 type AStream = Stream Float
 type DStream = Stream Int16
 
-type Envelope = Stream Float
+type Envelope = Stream SFactor
+
+newtype SFactor = SFactor { unFactor :: Float }
 
 -- Data that can be in an audio stream
 -- we can't use standard haskell classes since we want
 -- to be able to run floating-point operations (e.g. sin) on
 -- integer types as well
-class (Num a) => AudioData a where
-  scale :: Float -> a -> a
+class (Num a) => AudioNum a where
+  scale :: SFactor -> a -> a
   aDiv :: a -> a -> a
   minVal :: a
   maxVal :: a
   fromInt :: Integral b => b -> a
 
-instance AudioData Float where
-  scale = (*)
+instance AudioNum Float where
+  scale (SFactor f) x = f * x
   minVal = -1.0
   maxVal = 1.0
-  fromInt = floor
+  fromInt = fromIntegral
   aDiv = (/)
 
-class Floating a => ScalingData a where
-
-instance ScalingData Float where
-
-over :: AudioData a => Stream a -> Stream a -> Stream a
+over :: AudioNum a => Stream a -> Stream a -> Stream a
 over (Stream as) (Stream bs) = Stream (zipWith (+) as bs)
 
-after :: AudioData a => Stream a -> Stream a -> Stream a
-after (Stream as) (Stream bs) = Stream (as <> bs)
+andThen :: AudioNum a => Stream a -> Stream a -> Stream a
+andThen (Stream as) (Stream bs) = Stream (as <> bs)
 
 midiToFreq :: Float -> Float
 midiToFreq n = 440.0 * (2 ** (1.0 / 12.0)) ** n
 
-applyEnvelope :: AudioData a => Envelope -> Stream a -> Stream a
+applyEnvelope :: AudioNum a => Envelope -> Stream a -> Stream a
 applyEnvelope (Stream es) (Stream xs) = Stream $ zipWith (\e x -> e `scale` x) es xs
 
-linearly :: AudioData a => Int -> a -> a -> Stream a
-linearly sampleCount fromVal toVal = Stream $ ((\i -> fromVal + (toVal - fromVal) * (fromInt i `aDiv` fromInt sampleCount)) <$> [0..sampleCount])
 
 -- (1/10)s attack
 -- (6/10)s sustain
 -- (9/10)s decay
-keyPressEnvelope :: AudioData a => ScalingData a => Stream a
-keyPressEnvelope = es
+keyPressEnvelope :: Envelope
+keyPressEnvelope = SFactor <$> es
   where
-    es = linearly (sps `div` 10) 0 1 `after` linearly (6 * (sps `div` 10)) 1 1 `after` linearly (3 * (sps `div` 10)) 1 0
+    es = linearly (sps `div` 10) 0 1 `andThen` linearly (6 * (sps `div` 10)) 1 1 `andThen` linearly (3 * (sps `div` 10)) 1 0
 
 sinew :: Float -> Stream Float
 sinew freq =
@@ -88,7 +85,7 @@ sinew freq =
     Stream $ map f tvals
 
 wave :: Stream Float
-wave = applyEnvelope keyPressEnvelope (sinew (midiToFreq 0)) `after` applyEnvelope keyPressEnvelope (sinew (midiToFreq 1) `over` sinew (midiToFreq 2))
+wave = applyEnvelope keyPressEnvelope (sinew (midiToFreq 0)) `andThen` applyEnvelope keyPressEnvelope (sinew (midiToFreq 1) `over` sinew (midiToFreq 2))
 
 
 -- chunks per second
@@ -111,7 +108,7 @@ main = do
     let
       num_channels = 2 -- left and right
       bytes_per_sample = 2 -- 16bit numbers
-      sample_count = length wave
+      sample_count = let Stream w = wave in length w
       chunkSizeBytes = sample_count * bytes_per_sample * num_channels
     buffer <- mallocBytes chunkSizeBytes
     traverse (\(i, x) -> writeInt16OffPtr (castPtr buffer) (2*i + 1) x) (take (2 * sps) $ zip [0..] $ (floatToInt16 <$> unStream wave))
