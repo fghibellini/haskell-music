@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 2af33e5dd7a8afd4dbb0ad108cf2a9fdae826e3770c59de8949910028b6f19a7
+-- hash: 06380a1570c958f8caaab6a4aa9bbcb39462eceb1624861bae5423324a71e1a4
 
 name:           haskell-music
 version:        0.1.0.0
@@ -43,6 +43,8 @@ library
 executable haskell-music-exe
   main-is: Main.hs
   other-modules:
+      Zwk.Core
+      Zwk.Envelope
       Paths_haskell_music
   hs-source-dirs:
       app
